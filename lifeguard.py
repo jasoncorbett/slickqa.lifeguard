@@ -542,9 +542,9 @@ def save_machines(args):
                 machine.reset_agent()
             except:
                 machine.online = False
-                session.flush()
+                session.commit()
             session.query(Alert).filter(Alert.machine_id == machine.id).filter(Alert.resolved == None).update({"resolved": datetime.datetime.today(), "resolution": "Agent reset and work cancelled (if any)."});
-            session.flush()
+            session.commit()
             print "Done"
 save_machines_parser = commands.add_parser('save', help='Fix machines that are having problems.', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
 save_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
