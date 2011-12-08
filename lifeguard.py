@@ -12,6 +12,7 @@ import urllib
 import json
 import types
 import time
+import datetime
 
 cmdline_parser = argparse.ArgumentParser()
 commands = cmdline_parser.add_subparsers(title='Available Commands')
@@ -66,7 +67,7 @@ class MicroManagerError(Exception):
 
 class MicroManager(object):
 
-    def __init__(self, hostname, username='growqa', password='f00b@r'):
+    def __init__(self, hostname, username='mmadmin', password='f00b@r'):
         self.hostname = hostname
         self.baseurl = 'http://' + hostname + ":4321/api"
         self.http_connection = httplib2.Http()
@@ -200,6 +201,7 @@ class Alert(Base):
     id = Column(Integer, primary_key=True)
     issued = Column(DateTime, nullable=False)
     alert_type = Column(String, nullable=False)
+    alert_message = Column(String, nullable=True)
     resolved =  Column(DateTime, nullable=True)
     resolution = Column(String)
     machine_id = Column(Integer, ForeignKey('machines.id'))
@@ -243,17 +245,17 @@ class PoolMachine(Base):
         if status['currentWork'] is None:
             seconds_since_last_checkin = (int(time.time() * 1000) - status['lastCheckin'])
             if seconds_since_last_checkin < 300000:
-                retval.append(CheckStatus(CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_PASS))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_PASS))
             else:
-                retval.append(CheckStatus(CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the last checkin.".format(seconds_since_last_checkin / 60000)))
-            retval.append(CheckStatus(CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_NA))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the last checkin.".format(seconds_since_last_checkin / 60000)))
+            retval.append(CheckStatus(self, CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_NA))
         else:
-            retval.append(CheckStatus(CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_NA))
+            retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_NA))
             seconds_since_test_started = (int(time.time() * 1000) - status['currentWork']['recorded'])
             if seconds_since_test_started < 900000:
-                retval.append(CheckStatus(CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_PASS))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_PASS))
             else:
-                retval.append(CheckStatus(CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the current test started.".format(seconds_since_test_started / 60000)))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the current test started.".format(seconds_since_test_started / 60000)))
         return retval
 
     def check_java_processes(self):
@@ -263,9 +265,9 @@ class PoolMachine(Base):
         mm = MicroManager(self.hostname)
         java_processes = mm.find_processes_by_name("java")
         if len(java_processes) > 2 or len(java_processes) == 0:
-            return [CheckStatus(CheckStatus.CHECK_JAVA_PROCESS_COUNT, CheckStatus.STATUS_FAIL, "There are {} java processes running".format(len(java_processes))), ]
+            return [CheckStatus(self, CheckStatus.CHECK_JAVA_PROCESS_COUNT, CheckStatus.STATUS_FAIL, "There are {} java processes running".format(len(java_processes))), ]
         else:
-            return [CheckStatus(CheckStatus.CHECK_JAVA_PROCESS_COUNT, CheckStatus.STATUS_PASS), ]
+            return [CheckStatus(self, CheckStatus.CHECK_JAVA_PROCESS_COUNT, CheckStatus.STATUS_PASS), ]
 
     def check_firefox_processes(self):
         """
@@ -274,9 +276,23 @@ class PoolMachine(Base):
         mm = MicroManager(self.hostname)
         ff_procs = mm.find_processes_by_name("firefox")
         if len(ff_procs) > 2:
-            return [CheckStatus(CheckStatus.CHECK_FIREFOX_PROCESS_COUNT, CheckStatus.STATUS_FAIL, "There are {} firefox processes running".format(len(ff_procs))), ]
+            return [CheckStatus(self, CheckStatus.CHECK_FIREFOX_PROCESS_COUNT, CheckStatus.STATUS_FAIL, "There are {} firefox processes running".format(len(ff_procs))), ]
         else:
-            return [CheckStatus(CheckStatus.CHECK_FIREFOX_PROCESS_COUNT, CheckStatus.STATUS_PASS), ]
+            return [CheckStatus(self, CheckStatus.CHECK_FIREFOX_PROCESS_COUNT, CheckStatus.STATUS_PASS), ]
+
+    def check_disk_space(self):
+        """
+        Check to be sure that there is at least 350Mb of disk space left, we need room to run our tests.
+        """
+        mm = MicroManager(self.hostname)
+        drives = mm.get_disks()
+        env = mm.get_env()
+        for drive in drives:
+            if drive['Name'].startswith(env['HOMEDRIVE']):
+                if drive['TotalFreeSpace'] >= 367001600:
+                    return [CheckStatus(self, CheckStatus.CHECK_DISK_SPACE, CheckStatus.STATUS_PASS), ]
+                else:
+                    return [CheckStatus(self, CheckStatus.CHECK_DISK_SPACE, CheckStatus.STATUS_FAIL, "Only {} bytes of available disk space remain, expecting at least 367001600"), ]
 
     def perform_checks(self):
         """
@@ -286,6 +302,7 @@ class PoolMachine(Base):
         retval.extend(self.check_slick_status())
         retval.extend(self.check_java_processes())
         retval.extend(self.check_firefox_processes())
+        retval.extend(self.check_disk_space())
         return retval
 
     def stop_agent(self):
@@ -314,6 +331,15 @@ class PoolMachine(Base):
                 pass
         self.start_agent()
 
+    def cancel_work(self, message="This test was cancelled by lifeguard script because the test was interrupting progress (taking too long)."):
+        """
+        Cancel any work that the machine currently has.
+        """
+        slick = SlickAsPy(self.environment.slickurl + "/api")
+        status = slick.get_host_status(self.name)
+        if status['currentWork'] is not None:
+            slick.cancel_result(status['currentWork'], message)
+
 
 
 class CheckStatus:
@@ -326,11 +352,13 @@ class CheckStatus:
     CHECK_TEST_RUNTIME='runtime of test less than 15 minutes'
     CHECK_JAVA_PROCESS_COUNT='1 or 2 java processes running'
     CHECK_FIREFOX_PROCESS_COUNT='<2 firefox processes running'
+    CHECK_DISK_SPACE='at least 350Mb of free disk space'
 
-    def __init__(self, check, status, detail=""):
+    def __init__(self, machine, check, status, detail=""):
         self.check = check
         self.status = status
         self.detail = detail
+        self.machine = machine
 
     @staticmethod
     def summary_header():
@@ -338,6 +366,17 @@ class CheckStatus:
 
     def summary(self):
         return self.check.ljust(40) + self.status.ljust(9) + self.detail
+
+    def to_alert(self):
+        """
+        Take a failed check and turn it into an alert.
+        """
+        alert = Alert()
+        alert.issued = datetime.datetime.today()
+        alert.alert_type = self.check
+        alert.machine = self.machine
+        alert.alert_message = self.detail
+        return alert
 
 class MachineFinder:
     """
@@ -350,6 +389,8 @@ class MachineFinder:
     def find_machines(self, session):
         if self.finder == 'all':
             return session.query(PoolMachine).order_by(PoolMachine.id).all()
+        if self.finder == 'drowning':
+            return session.query(PoolMachine).join(Alert, PoolMachine.id == Alert.machine_id).filter(Alert.resolved == None).filter(PoolMachine.online == True).all()
         if self.finder.startswith('env:'):
             envname = self.finder[4:]
             return session.query(PoolMachine).join(Environment).filter(Environment.name==envname).order_by(PoolMachine.id).all()
@@ -374,6 +415,7 @@ class MachineFinder:
         retval += "\tenv:[environment name]                  Find machines by what environment they are in\n"
         retval += "\tstate:[offline or online]               List any machines in offline or online mode\n"
         retval += "\thostname:[all or part of the hostname]  All or part of the hostname\n"
+        retval += "\tdrowning                                Machines that have unresolved alerts.\n"
         retval += "\tall                                     All machines\n"
         return retval
 
@@ -452,6 +494,9 @@ def check_machines(args):
             check_statuses = machine.perform_checks()
             for check_status in check_statuses:
                 print check_status.summary()
+                if check_status.status == CheckStatus.STATUS_FAIL:
+                    session.add(check_status.to_alert())
+                    session.commit()
 check_machines_parser = commands.add_parser('check', help='Perform diagnostic checks on found machines', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
 check_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
 check_machines_parser.set_defaults(func=check_machines)
@@ -475,6 +520,35 @@ def reset_machines(args):
 reset_machines_parser = commands.add_parser('reset', help='Stop, remove files, then start the agent on all found machines', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
 reset_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
 reset_machines_parser.set_defaults(func=reset_machines)
+
+def save_machines(args):
+    """
+    Save, or rather fix, the machines found by the finder passed in.  There is only one thing to do to save machines
+    right now and that is to reset the agent and cancel the work it has in it's queue (if any).  If any errors occur,
+    the machine is taken offline.
+    """
+    session = Session()
+    finder = MachineFinder(args.finder)
+    machines = finder.find_machines(session)
+    print "Machines Found: %d" % (len(machines))
+    if len(machines) > 0:
+        print
+        print "Saving (resetting agent and canceling work) on machines:"
+        for machine in machines:
+            sys.stdout.write(machine.hostname + "...")
+            sys.stdout.flush()
+            try:
+                machine.cancel_work()
+                machine.reset_agent()
+            except:
+                machine.online = False
+                session.flush()
+            session.query(Alert).filter(Alert.machine_id == machine.id).filter(Alert.resolved == None).update({"resolved": datetime.datetime.today(), "resolution": "Agent reset and work cancelled (if any)."});
+            session.flush()
+            print "Done"
+save_machines_parser = commands.add_parser('save', help='Fix machines that are having problems.', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
+save_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
+save_machines_parser.set_defaults(func=save_machines)
 
 
 
