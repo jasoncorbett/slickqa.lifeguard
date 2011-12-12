@@ -551,7 +551,13 @@ save_machines_parser.add_argument('finder', help='A valid machine finder (you ca
 save_machines_parser.set_defaults(func=save_machines)
 
 
-
+# Silently load plugins
+plugins_dir = os.path.expanduser(os.path.join("~", ".lifeguard"))
+sys.path.append(plugins_dir)
+try:
+    from lifeguardplugins import *
+except:
+    pass
 
 if __name__ == '__main__':
     args = cmdline_parser.parse_args()
