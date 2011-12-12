@@ -554,10 +554,13 @@ save_machines_parser.set_defaults(func=save_machines)
 # Silently load plugins
 plugins_dir = os.path.expanduser(os.path.join("~", ".lifeguard"))
 sys.path.append(plugins_dir)
-try:
-    from lifeguardplugins import *
-except:
-    pass
+if os.path.exists(plugins_dir):
+    plugins = os.listdir(plugins_dir)
+    for plugin in plugins:
+        try:
+            execfile(os.path.join(plugins_dir, plugin))
+        except:
+            pass
 
 if __name__ == '__main__':
     args = cmdline_parser.parse_args()
