@@ -105,6 +105,9 @@ class MicroManager(object):
         response, content = self.http_connection.request(self._get_url(*args, **kwargs), 'DELETE', json.dumps(data), json_content)
         return self._safe_return(response, content)
 
+    def get_process(self, pid):
+        return self._safe_get("processes", str(pid))
+
     def find_processes_by_name(self, process_name):
         return self._safe_get("processes", name=process_name)
 
@@ -540,6 +543,8 @@ def save_machines(args):
             try:
                 machine.cancel_work()
                 machine.reset_agent()
+                if not machine.online:
+                    machine.online = True
             except:
                 machine.online = False
                 session.commit()
