@@ -312,6 +312,7 @@ class PoolMachine(Base):
         mm = MicroManager(self.hostname)
         mm.kill_all("java")
         mm.kill_all("firefox")
+        mm.kill_all("iexplore")
 
     def start_agent(self):
         mm = MicroManager(self.hostname)
