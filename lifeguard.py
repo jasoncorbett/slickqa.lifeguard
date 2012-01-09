@@ -13,6 +13,10 @@ import json
 import types
 import time
 import datetime
+from multiprocessing import Pool
+
+# We should really read this in from somewhere
+POOL_SIZE=10
 
 cmdline_parser = argparse.ArgumentParser()
 commands = cmdline_parser.add_subparsers(title='Available Commands')
@@ -222,7 +226,7 @@ class PoolMachine(Base):
     hostname = Column(String)
     online = Column(Boolean)
     environment_id = Column(Integer, ForeignKey('environments.id'))
-    environment = relationship('Environment', backref=backref('machines', order_by=id))
+    environment = relationship('Environment', backref=backref('machines', order_by=id), lazy='joined')
 
     def __repr__(self):
         return "PoolMachine(id=%d, name='%s', hostname='%s', environment=%s)" % (self.id, self.name, self.hostname, repr(self.environment))
@@ -424,6 +428,11 @@ class MachineFinder:
         return retval
 
 
+def check(machine):
+	"""
+	This is used for map like functionality, basically it just uses the objects check method, returning a tuple of the object, then the result.
+	"""
+	return (machine, machine.perform_checks())
 
 def init_new_db(args):
     """
@@ -489,18 +498,35 @@ def check_machines(args):
     machines = finder.find_machines(session)
     print "Machines Found: %d" % (len(machines))
     if len(machines) > 0:
-        print
-        print CheckStatus.summary_header()
-        print "=" * 80
-        for machine in machines:
-            print machine.hostname + ":"
-            print '-' * (len(machine.hostname) + 1)
-            check_statuses = machine.perform_checks()
-            for check_status in check_statuses:
-                print check_status.summary()
-                if check_status.status == CheckStatus.STATUS_FAIL:
-                    session.add(check_status.to_alert())
-                    session.commit()
+        if len(machines) > 1:
+            print
+            print CheckStatus.summary_header()
+            print "=" * 80
+            pool = Pool(POOL_SIZE)
+            results = pool.map(check, machines)
+            for result in results:
+                machine = result[0]
+                check_statuses = result[1]
+                print machine.hostname + ":"
+                print '-' * (len(machine.hostname) + 1)
+                for check_status in check_statuses:
+                    print check_status.summary()
+                    if check_status.status == CheckStatus.STATUS_FAIL:
+                        session.add(check_status.to_alert())
+                        session.commit()
+        else:
+            print
+            print CheckStatus.summary_header()
+            print "=" * 80
+            for machine in machines:
+                print machine.hostname + ":"
+                print '-' * (len(machine.hostname) + 1)
+                check_statuses = machine.perform_checks()
+                for check_status in check_statuses:
+                    print check_status.summary()
+                    if check_status.status == CheckStatus.STATUS_FAIL:
+                        session.add(check_status.to_alert())
+                        session.commit()
 check_machines_parser = commands.add_parser('check', help='Perform diagnostic checks on found machines', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
 check_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
 check_machines_parser.set_defaults(func=check_machines)
