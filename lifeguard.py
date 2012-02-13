@@ -15,6 +15,9 @@ import time
 import datetime
 from multiprocessing import Pool
 
+import socket
+socket.setdefaulttimeout(60)
+
 # We should really read this in from somewhere
 POOL_SIZE=10
 
@@ -432,7 +435,12 @@ def check(machine):
 	"""
 	This is used for map like functionality, basically it just uses the objects check method, returning a tuple of the object, then the result.
 	"""
-	return (machine, machine.perform_checks())
+	retval = (machine, ())
+	try:
+		retval = (machine, machine.perform_checks())
+	except:
+		pass
+	return retval
 
 def init_new_db(args):
     """
@@ -505,11 +513,12 @@ def check_machines(args):
             pool = Pool(POOL_SIZE)
             results = pool.map(check, machines)
             for result in results:
-                machine = result[0]
+                machine = session.query(PoolMachine).filter_by(id=result[0].id).first()
                 check_statuses = result[1]
                 print machine.hostname + ":"
                 print '-' * (len(machine.hostname) + 1)
                 for check_status in check_statuses:
+                    check_status.machine = machine
                     print check_status.summary()
                     if check_status.status == CheckStatus.STATUS_FAIL:
                         session.add(check_status.to_alert())
