@@ -540,6 +540,27 @@ check_machines_parser = commands.add_parser('check', help='Perform diagnostic ch
 check_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
 check_machines_parser.set_defaults(func=check_machines)
 
+def stop_machines(args):
+    """
+    Stop the agent on all the found machines.
+    """
+    session = Session()
+    finder = MachineFinder(args.finder)
+    machines = finder.find_machines(session)
+    print "Machines Found: %d" % (len(machines))
+    if len(machines) > 0:
+        print
+        print "Stopping the Agent on machines:"
+        for machine in machines:
+            sys.stdout.write(machine.hostname + "...")
+            sys.stdout.flush()
+            machine.stop_agent()
+            print "Done"
+stop_machines_parser = commands.add_parser('stop', help='Stop the agent on all found machines', epilog=MachineFinder.epilog_text(), formatter_class=argparse.RawDescriptionHelpFormatter)
+stop_machines_parser.add_argument('finder', help='A valid machine finder (you can test it with the list command)')
+stop_machines_parser.set_defaults(func=stop_machines)
+
+
 def reset_machines(args):
     """
     Run the agent reset on all the found machines.
