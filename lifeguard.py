@@ -478,6 +478,24 @@ add_machine_parser.add_argument('hostname', help='the hostname or ip address of 
 add_machine_parser.add_argument('environment', help='the slick environment this machine reports to')
 add_machine_parser.set_defaults(func=add_machine)
 
+def delete_machine(args):
+    """
+    Delete a machine from the pool.
+    """
+    session = Session()
+    # the following is used to help with code completion
+    """session.query(PoolMachine).filter(PoolMachine.hostname==args.hostname).delete()
+    session.commit()"""
+    machine = session.query(PoolMachine).filter(PoolMachine.hostname==args.hostname).first()
+    if machine is not None:
+        print "Deleting machine with hostname: " + machine.hostname + " and with id: " + str(machine.id)
+        session.query(PoolMachine).filter(PoolMachine.hostname==args.hostname).delete()
+        session.commit()
+    else:
+        print "No machine was found!"
+delete_machine_parser = commands.add_parser('deletemachine', help='Delete a machine from the pool database')
+delete_machine_parser.add_argument('hostname', help='the hostname or ip address of the machine')
+delete_machine_parser.set_defaults(func=delete_machine)
 
 def list_machines(args):
     """
