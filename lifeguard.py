@@ -260,12 +260,12 @@ class PoolMachine(Base):
                 retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the last checkin.".format(seconds_since_last_checkin / 60000)))
             retval.append(CheckStatus(self, CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_NA))
         else:
-            retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_NA))
+            retval.append(CheckStatus(self, CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_NA))
             seconds_since_test_started = (int(time.time() * 1000) - status['currentWork']['recorded'])
             if seconds_since_test_started < 900000:
-                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_PASS))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_PASS))
             else:
-                retval.append(CheckStatus(self, CheckStatus.CHECK_SLICK_CHECKIN, CheckStatus.STATUS_FAIL, "It's been {} minutes since the current test started.".format(seconds_since_test_started / 60000)))
+                retval.append(CheckStatus(self, CheckStatus.CHECK_TEST_RUNTIME, CheckStatus.STATUS_FAIL, "It's been {} minutes since the current test started.".format(seconds_since_test_started / 60000)))
         return retval
 
     def check_java_processes(self):
@@ -325,9 +325,9 @@ class PoolMachine(Base):
         mm = MicroManager(self.hostname)
         agent_proc = {
             "UseShellExecute": True,
-            "FileName": "java",
+            "FileName": "java.exe",
             "Arguments": "-jar automation-agent-1.0-SNAPSHOT.jar",
-            "WorkingDirectory": "C:\\\\Users\\growqa\\Desktop\\automation"
+            "WorkingDirectory": "C:\\Users\\growqa\\Desktop\\automation"
         }
         mm.run_process(agent_proc)
 
@@ -613,6 +613,7 @@ def save_machines(args):
         print
         print "Saving (resetting agent and canceling work) on machines:"
         for machine in machines:
+            print("machine name: " + machine.name)
             sys.stdout.write(machine.hostname + "...")
             sys.stdout.flush()
             try:
