@@ -613,7 +613,6 @@ def save_machines(args):
         print
         print "Saving (resetting agent and canceling work) on machines:"
         for machine in machines:
-            print("machine name: " + machine.name)
             sys.stdout.write(machine.hostname + "...")
             sys.stdout.flush()
             try:
